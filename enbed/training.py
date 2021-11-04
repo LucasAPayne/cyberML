@@ -1,10 +1,13 @@
-import torch
 import time
 import numpy as np
+
+import torch
+from torch.nn import functional as F
 
 def train_energy(optimizer, batcher, model, samples, steps):
     '''
     Training function for energy-based models.
+    Learn embeddings by minimizing loss.
 
     optimizer: pytorch optimizer
     batcher: batcher object providing mini-batches
@@ -16,7 +19,7 @@ def train_energy(optimizer, batcher, model, samples, steps):
     for k in range(steps):
         if k%100 == 0:
             estimate = (time.time()-starttime)/(k+1)*(steps-k)/60.
-            print('ETA {}min'.format(np.round(estimate,2)), end =  '\r')
+            print('ETA {}min'.format(np.round(estimate,2)), end='\r')
         optimizer.zero_grad()
         databatch = batcher.next_batch()
 
@@ -38,7 +41,7 @@ def train_RESCAL(optimizer, batcher, model, steps, whichloss = 'KL'):
     if whichloss == 'MSE':
         lossf = torch.nn.MSELoss()
     elif whichloss == 'KL':
-        lossf = torch.nn.KLDivLoss()
+        lossf = torch.nn.KLDivLoss(reduction='batchmean')
 
     starttime = time.time()
     for k in range(steps):
@@ -52,7 +55,7 @@ def train_RESCAL(optimizer, batcher, model, steps, whichloss = 'KL'):
         targets = (torch.tensor(databatch[-1])>0)*1.
 
         if whichloss == 'KL':
-            loss = lossf(F.log_softmax(prediction), targets)
+            loss = lossf(F.log_softmax(prediction, dim=0), targets)
         else:
             loss = lossf(prediction, targets)
         loss.backward()

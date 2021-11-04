@@ -1,5 +1,4 @@
 import torch
-from torch.nn import functional as F
 
 def DistMult_score(s_emb, o_emb, p_emb):
     '''

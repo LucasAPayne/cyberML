@@ -21,6 +21,10 @@ class RESCAL_Scorer:
         torch.manual_seed(seed)
         self.entities = torch.nn.Embedding(num_nodes, dim)
         self.predicates = torch.nn.Embedding(num_predicates, dim*dim)
+    
+    def init(self):
+        self.entities.weight.data *= 0.1
+        self.predicates.weight.data *= 0.1
 
     def score(self, subj, pred, obj):
         '''
@@ -72,6 +76,7 @@ class Energy_Scorer(RESCAL_Scorer):
         '''
         Cost function using sampling to maximize data likelihood.
         '''
+        # nbatch is the dimension of embedding vectors
         nbatch = len(subj)
         pscore = self.score(subj, pred, obj)
 
@@ -79,27 +84,39 @@ class Energy_Scorer(RESCAL_Scorer):
         old_score = pscore
         for k in range(num_samples+burnin):
             spo = np.random.randint(3, size=nbatch)
+            # One mask will be 1 and the rest will be 0 (randomly) on each for loop
             smask = (spo == 0)
             omask = (spo == 2)
             pmask = (spo == 1)
-
+            
+            # Note: '~' is bitwise negation; 0 -> -1, 1 -> -2
+            # Pick new sub, obj, rel by first multiplying by the complement of the mask, then adding a random offset to one of them
             new_subj = ~smask*subj + smask*(np.random.random(nbatch)*self.num_nodes)
             new_obj = ~omask*obj + omask*(np.random.random(nbatch)*self.num_nodes)
             new_pred = ~pmask*pred + pmask*(np.random.random(nbatch)*self.num_predicates)
 
+            # Score the new triple
             proposal_score = self.score(new_subj, new_pred, new_obj)
 
+            # filters is a binary tensor containing the result of comparing each element of a random tensor and the tensor resulting from
+            # Ti = e^(proposal_score_i - old_score_i) for each element i
+            # Recalculate old_score by applying filters to proposal_score and old_score and combining the results
             filters = 1.*(torch.rand(nbatch) <= torch.exp(proposal_score-old_score))
             old_score = proposal_score*filters + old_score*(1-filters)
 
+            # Convert filters to a numpy array and construct a new triple by applying filters to the old and new triples and combining the results
             filters = filters.detach().numpy()
             subj = np.array(new_subj*filters + subj*(1-filters), dtype=int)
             obj = np.array(new_obj*filters + obj*(1-filters), dtype=int)
             pred = np.array(new_pred*filters + pred*(1-filters), dtype=int)
 
+            # Convert old_score from tensor to scalar by summing its elements
+            # Add the old score to the sum, not counting burnin
             if k >= burnin:
                 total_score += old_score.sum()
 
+        # The cost is the negative sum of the original score tensor plus a small offset based on the number of samples and the total score
+        # Cost is a scalar. Higher total score gives lower cost.
         cost = -pscore.sum() + 1./num_samples*total_score
         return cost
 

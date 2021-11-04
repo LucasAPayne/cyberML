@@ -12,6 +12,9 @@ class batch_provider:
         seed: random seed for neg. sample generation
         '''
         self.data = deepcopy(data)
+        
+        # The number of nodes is the max of the 1st and 3rd column of data (subjects and objects)
+        # The data is all IDs, from 0 to the number of subjects/objects, so finding the overall max of these gives the number of nodes
         self.num_nodes = np.max([np.max(data[:,0]), np.max(data[:,2])])
 
         np.random.seed(seed)
@@ -30,8 +33,11 @@ class batch_provider:
         '''
         i = self.current_minibatch
         di = self.batchsize
+        
+        # This minibatch is the piece of data starting from (current_minibatch_index * batch_size) until (next_minibatch_index * batch_size)
         mbatch = deepcopy(self.data[i*di:(i+1)*di])
         self.current_minibatch += 1
+        
         if self.current_minibatch == self.number_minibatches:
             np.random.shuffle(self.data)
             self.current_minibatch = 0
@@ -39,6 +45,8 @@ class batch_provider:
             subj, pred, obj, labels = self.apply_neg_examples(list(mbatch[:,0]), list(mbatch[:,1]), list(mbatch[:,2]))
             return subj, pred, obj, labels
         else:
+            # Return first 3 columns of batch data (subject, relation, object)
+            # If batch_size is 100, this will return 100 triples
             return mbatch[:,0], mbatch[:,1], mbatch[:,2]
 
     def apply_neg_examples(self, subj, pred, obj):
