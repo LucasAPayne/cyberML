@@ -1,56 +1,55 @@
 import torch
 import numpy as np
 import matplotlib.pyplot as plt
-from enbed.utils.scorer import RESCAL_score
-from enbed.utils.scorer import DistMult_score
+from enbed.utils.scorer import RESCAL_score, DistMult_score
 
-class RESCAL_Scorer:
-    def __init__(self, num_nodes, num_predicates, dim, seed = 1231245):
+class RESCAL:
+    def __init__(self, num_entities, num_relations, dim, seed = 1231245):
         '''
         Implementation of the RESCAL graph embedding model (Nickel et al., 2011).
 
         dim: embedding dimension
-        num_nodes: number of nodes in the graph
-        num_predicates: number of relation types in the graph
+        num_entities: number of entities in the graph
+        num_relations: number of relation types in the graph
         '''
         self.dim = dim
-        self.num_nodes = num_nodes
-        self.num_predicates = num_predicates
+        self.num_entities = num_entities
+        self.num_relations = num_relations
 
         # embeddings
         torch.manual_seed(seed)
-        self.entities = torch.nn.Embedding(num_nodes, dim)
-        self.predicates = torch.nn.Embedding(num_predicates, dim*dim)
+        self.entities = torch.nn.Embedding(num_entities, dim)
+        self.relations = torch.nn.Embedding(num_relations, dim*dim)
     
     def init(self):
         self.entities.weight.data *= 0.1
-        self.predicates.weight.data *= 0.1
+        self.relations.weight.data *= 0.1
 
-    def score(self, subj, pred, obj):
+    def score(self, sub, rel, obj):
         '''
-        Score a list of triple [[s0, p0, o0], [s1, p1, o1],...]
+        Score a list of triple [[s0, r0, o0], [s1, r1, o1],...]
 
-        subj, pred and obj are lists [s0, s1, ...], [p0, p1, ...], [o0, o1, ...]
+        sub, rel and obj are lists [s0, s1, ...], [r0, r1, ...], [o0, o1, ...]
         '''
-        s_emb = self.entities(torch.tensor(subj).long())
+        s_emb = self.entities(torch.tensor(sub).long())
         o_emb = self.entities(torch.tensor(obj).long())
-        p_emb = self.predicates(torch.tensor(pred).long())
+        r_emb = self.relations(torch.tensor(rel).long())
 
-        return RESCAL_score(s_emb, o_emb, p_emb.view(-1, self.dim, self.dim))
+        return RESCAL_score(s_emb, o_emb, r_emb.view(-1, self.dim, self.dim))
 
-    def prob(self, subj, pred, obj):
+    def prob(self, sub, rel, obj):
         '''
         Apply sigmoid to score.
         '''
-        return torch.sigmoid(self.score(subj, pred, obj))
+        return torch.sigmoid(self.score(sub, rel, obj))
 
     def save(self, savepath, appdix = ''):
         '''
         Save and visualize embeddings.
         '''
-        pred_embs = self.predicates.weight.data.detach().numpy()
+        rel_embs = self.relations.weight.data.detach().numpy()
         ent_embs = self.entities.weight.data.detach().numpy()
-        np.save('{}/predicate_embeddings_{}.npy'.format(savepath, appdix), pred_embs)
+        np.save('{}/relation_embeddings_{}.npy'.format(savepath, appdix), rel_embs)
         np.save('{}/entity_embeddings_{}.npy'.format(savepath, appdix), ent_embs)
 
         plt.close()
@@ -59,44 +58,44 @@ class RESCAL_Scorer:
         plt.savefig('{}/entity_embeddings_{}.png'.format(savepath, appdix))
 
         plt.close()
-        for j in range(len(pred_embs)):
-            plt.vlines(pred_embs[j], j+0.1, (j+1)-0.1)
-        plt.savefig('{}/predicate_embeddings_{}.png'.format(savepath, appdix))
+        for j in range(len(rel_embs)):
+            plt.vlines(rel_embs[j], j+0.1, (j+1)-0.1)
+        plt.savefig('{}/relation_embeddings_{}.png'.format(savepath, appdix))
 
 
-class Energy_Scorer(RESCAL_Scorer):
-    def __init__(self, num_nodes, num_predicates, dim, seed = 1231245):
+class Energy(RESCAL):
+    def __init__(self, num_entities, num_relations, dim, seed = 1231245):
         '''
         Energy-based model for calculating embeddings. The cost is obtained using stochastic sampling.
         '''
-        super().__init__(num_nodes, num_predicates, dim, seed)
+        super().__init__(num_entities, num_relations, dim, seed)
         np.random.seed(seed)
 
-    def cost(self, subj, pred, obj, num_samples, burnin=0):
+    def cost(self, sub, rel, obj, num_samples, burnin=0):
         '''
         Cost function using sampling to maximize data likelihood.
         '''
         # nbatch is the dimension of embedding vectors
-        nbatch = len(subj)
-        pscore = self.score(subj, pred, obj)
+        nbatch = len(sub)
+        pscore = self.score(sub, rel, obj)
 
         total_score = 0
         old_score = pscore
         for k in range(num_samples+burnin):
-            spo = np.random.randint(3, size=nbatch)
+            sro = np.random.randint(3, size=nbatch)
             # One mask will be 1 and the rest will be 0 (randomly) on each for loop
-            smask = (spo == 0)
-            omask = (spo == 2)
-            pmask = (spo == 1)
+            smask = (sro == 0)
+            rmask = (sro == 1)
+            omask = (sro == 2)
             
             # Note: '~' is bitwise negation; 0 -> -1, 1 -> -2
             # Pick new sub, obj, rel by first multiplying by the complement of the mask, then adding a random offset to one of them
-            new_subj = ~smask*subj + smask*(np.random.random(nbatch)*self.num_nodes)
-            new_obj = ~omask*obj + omask*(np.random.random(nbatch)*self.num_nodes)
-            new_pred = ~pmask*pred + pmask*(np.random.random(nbatch)*self.num_predicates)
+            new_sub = ~smask*sub + smask*(np.random.random(nbatch)*self.num_entities)
+            new_obj = ~omask*obj + omask*(np.random.random(nbatch)*self.num_entities)
+            new_rel = ~rmask*rel + rmask*(np.random.random(nbatch)*self.num_relations)
 
             # Score the new triple
-            proposal_score = self.score(new_subj, new_pred, new_obj)
+            proposal_score = self.score(new_sub, new_rel, new_obj)
 
             # filters is a binary tensor containing the result of comparing each element of a random tensor and the tensor resulting from
             # Ti = e^(proposal_score_i - old_score_i) for each element i
@@ -106,9 +105,9 @@ class Energy_Scorer(RESCAL_Scorer):
 
             # Convert filters to a numpy array and construct a new triple by applying filters to the old and new triples and combining the results
             filters = filters.detach().numpy()
-            subj = np.array(new_subj*filters + subj*(1-filters), dtype=int)
+            sub = np.array(new_sub*filters + sub*(1-filters), dtype=int)
             obj = np.array(new_obj*filters + obj*(1-filters), dtype=int)
-            pred = np.array(new_pred*filters + pred*(1-filters), dtype=int)
+            rel = np.array(new_rel*filters + rel*(1-filters), dtype=int)
 
             # Convert old_score from tensor to scalar by summing its elements
             # Add the old score to the sum, not counting burnin
@@ -120,18 +119,18 @@ class Energy_Scorer(RESCAL_Scorer):
         cost = -pscore.sum() + 1./num_samples*total_score
         return cost
 
-class Energy_Diag_Scorer(Energy_Scorer):
-    def __init__(self, num_nodes, num_predicates, dim, seed = 1231245):
+class EnergyDiag(Energy):
+    def __init__(self, num_entities, num_relations, dim, seed = 1231245):
         '''
         Energy-based model for calculating embeddings, with diagonally-constrained relation matrices.
         Similar to DistMult (Yang et al., 2014).
         '''
-        super().__init__(num_nodes, num_predicates, dim, seed)
-        self.predicates = torch.nn.Embedding(num_predicates, dim)
+        super().__init__(num_entities, num_relations, dim, seed)
+        self.relations = torch.nn.Embedding(num_relations, dim)
 
-    def score(self, subj, pred, obj):
-        s_emb = self.entities(torch.tensor(subj).long())
+    def score(self, sub, rel, obj):
+        s_emb = self.entities(torch.tensor(sub).long())
         o_emb = self.entities(torch.tensor(obj).long())
-        p_emb = self.predicates(torch.tensor(pred).long())
+        r_emb = self.relations(torch.tensor(rel).long())
 
-        return DistMult_score(s_emb, o_emb, p_emb)
+        return DistMult_score(s_emb, o_emb, r_emb)
