@@ -86,7 +86,7 @@ def load_test(testpath, testcase):
     labels = np.array(trip_data[:,-1:], dtype=int).flatten()
     triples = np.array(trip_data[:,:-1], dtype=int)
 
-    named_triples = open('{}/{}.txt'.format(testpath, testcase))
+    named_triples = open('{}/{}.ttl'.format(testpath, testcase))
     read_data = named_triples.read()
     triples_named = []
     for lines in read_data.split('\n')[:-1]:
