@@ -91,7 +91,7 @@ def load_test(testpath, testcase):
     triples_named = []
     for lines in read_data.split('\n')[:-1]:
         triples_named.append(lines.split('\t')[:-1])
-    triples_named = np.array(triples_named)
+    triples_named = np.array(triples_named, dtype=object)
     named_triples.close()
 
     return triples, triples_named, labels
